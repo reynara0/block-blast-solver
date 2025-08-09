@@ -1,4 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
+import BoardView from "../components/Board";
+import Hands from "../components/Hands";
+import Palette from "../components/Palette";
+import ThemeModal from "../components/ThemeModal";
 import {
 	Board,
 	DEFAULT_THEME,
@@ -6,6 +10,8 @@ import {
 	Preview,
 	Theme,
 	Algorithm,
+	AlgoConfig,
+	DEFAULT_ALGO_CONFIG,
 	N,
 } from "../types";
 import { emptyBoard, place, findBestByAlgorithm } from "../lib/board";
@@ -21,16 +27,17 @@ import {
 	saveTheme,
 	loadAlgo,
 	saveAlgo,
+	loadAlgoCfg,
+	saveAlgoCfg,
 } from "../lib/storage";
-import BoardView from "../components/Board";
-import Hands from "../components/Hands";
-import Palette from "../components/Palette";
-import ThemeModal from "../components/ThemeModal";
 
 export default function BlockBlastHelper() {
 	const [theme, setTheme] = useState<Theme>(() => loadTheme(DEFAULT_THEME));
 	const [stepMs, setStepMs] = useState<number>(() => loadSpeed(3000));
-	const [algo, setAlgo] = useState<Algorithm>(() => loadAlgo("beam"));
+	const [algo, setAlgo] = useState<Algorithm>(() => loadAlgo("hybrid"));
+	const [algoCfg, setAlgoCfg] = useState<AlgoConfig>(() =>
+		loadAlgoCfg(DEFAULT_ALGO_CONFIG),
+	);
 
 	const [board, setBoard] = useState<Board>(() => loadBoard(N, emptyBoard()));
 	const [selected, setSelected] = useState<Array<Hand | null>>([
@@ -47,6 +54,7 @@ export default function BlockBlastHelper() {
 	}, [theme]);
 	useEffect(() => saveSpeed(stepMs), [stepMs]);
 	useEffect(() => saveAlgo(algo), [algo]);
+	useEffect(() => saveAlgoCfg(algoCfg), [algoCfg]);
 	useEffect(() => saveBoard(board), [board]);
 	useEffect(() => {
 		const ids = selected.map((h) => (h ? { id: h.id } : null));
@@ -89,8 +97,8 @@ export default function BlockBlastHelper() {
 			setPreview(null);
 			return;
 		}
-		setPreview(findBestByAlgorithm(board, hands, algo));
-	}, [board, selected, algo]);
+		setPreview(findBestByAlgorithm(board, hands, algo, algoCfg));
+	}, [board, selected, algo, algoCfg]);
 
 	// loop preview
 	const GAP_MS = 300;
@@ -209,16 +217,11 @@ export default function BlockBlastHelper() {
 		});
 	};
 
+	const handsCount = (selected.filter(Boolean) as Hand[]).length;
+	const noMoves = handsCount > 0 && (!preview || preview.steps.length < handsCount);
+
 	return (
 		<div style={shell}>
-			<style>{`
-        @keyframes pulseStep {
-          0% { transform: scale(0.9); opacity: 0.2; }
-          25% { transform: scale(1.0); opacity: 0.95; }
-          100% { transform: scale(0.9); opacity: 0.2; }
-        }
-        .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:50; }
-      `}</style>
 
 			{/* Top bar with Algorithm select */}
 			<div
@@ -236,16 +239,6 @@ export default function BlockBlastHelper() {
 					<div style={{ fontSize: 18, fontWeight: 600 }}>
 						Block Blast Helper
 					</div>
-					<select
-						value={algo}
-						onChange={(e) => setAlgo(e.target.value as Algorithm)}
-						style={selectStyle}
-						title="Algorithm"
-					>
-						<option value="greedy">Greedy</option>
-						<option value="beam">Beam(K=120)</option>
-						<option value="rollout">Rollout(N=40)</option>
-					</select>
 				</div>
 				<div style={{ display: "flex", gap: 8 }}>
 					{canInstall && (
@@ -276,45 +269,151 @@ export default function BlockBlastHelper() {
 					justifyContent: "left",
 				}}
 			>
-				<button onClick={() => setBoard(emptyBoard())} style={button}>
-					Reset
-				</button>
-				<button
-					onClick={() => setStepMs((s) => Math.min(6000, s + 400))}
-					style={button}
+				<div
+					style={{ width: "100%", display: "flex", gap: 8, marginBottom: 10 }}
 				>
-					Slower
-				</button>
-				<button
-					onClick={() => setStepMs((s) => Math.max(800, s - 400))}
-					style={button}
-				>
-					Faster
-				</button>
+					<button onClick={() => setBoard(emptyBoard())} style={button}>
+						Reset
+					</button>
+					<button
+						onClick={() => setStepMs((s) => Math.min(6000, s + 400))}
+						style={button}
+					>
+						Slower
+					</button>
+					<button
+						onClick={() => setStepMs((s) => Math.max(800, s - 400))}
+						style={button}
+					>
+						Faster
+					</button>
+					<div
+						style={{
+							display: "flex",
+							alignItems: "center",
+							gap: 8,
+							padding: "6px 8px",
+						}}
+					>
+						<span style={{ fontSize: 12, opacity: 0.8 }}>Anim speed:</span>
+						<strong style={{ color: theme.accentColor }}>
+							{Math.round(stepMs / 100) / 10}s/step
+						</strong>
+					</div>
+				</div>
+
 				<button onClick={() => setShowTheme(true)} style={button}>
 					Customize Theme
 				</button>
-				<div
-					style={{
-						display: "flex",
-						alignItems: "center",
-						gap: 8,
-						padding: "6px 8px",
-					}}
+
+				<select
+					value={algo}
+					onChange={(e) => setAlgo(e.target.value as Algorithm)}
+					style={selectStyle}
+					title="Algorithm"
 				>
-					<span style={{ fontSize: 12, opacity: 0.8 }}>Anim speed:</span>
-					<strong style={{ color: theme.accentColor }}>
-						{Math.round(stepMs / 100) / 10}s/step
-					</strong>
+					<option value="max_clearance">Max Clearance</option>
+					<option value="max_positional">Max Positional</option>
+					<option value="hybrid">Hybrid (50/50)</option>
+				</select>
+
+				<div style={{ width: "100%", display: "flex", gap: 8 }}>
+					<div
+						style={{
+							...glass(10),
+							borderRadius: 10,
+							marginTop: 12,
+							display: "grid",
+							gap: 10,
+						}}
+					>
+						{/* Search cap for DFS-based modes */}
+						<div
+							style={{
+								display: "grid",
+								gridTemplateColumns: "140px 1fr auto",
+								gap: 8,
+								alignItems: "center",
+							}}
+						>
+							<div style={{ fontSize: 12, opacity: 0.8 }}>
+								Search cap (nodes)
+							</div>
+							<input
+								type="range"
+								min={5000}
+								max={200000}
+								step={5000}
+								value={algoCfg.maxNodes}
+								onChange={(e) =>
+									setAlgoCfg((c) => ({
+										...c,
+										maxNodes: parseInt(e.target.value, 10),
+									}))
+								}
+							/>
+							<div style={{ fontSize: 12, color: theme.accentColor }}>
+								{algoCfg.maxNodes.toLocaleString()}
+							</div>
+						</div>
+
+						{/* Hybrid weights */}
+						{algo === "hybrid" && (
+							<div
+								style={{
+									display: "grid",
+									gridTemplateColumns: "140px 1fr auto",
+									gap: 8,
+									alignItems: "center",
+								}}
+							>
+								<div style={{ fontSize: 12, opacity: 0.8 }}>
+									Hybrid weight (Clearance)
+								</div>
+								<input
+									type="range"
+									min={0}
+									max={100}
+									step={5}
+									value={Math.round(algoCfg.hybridWeights.clearance * 100)}
+									onChange={(e) => {
+										const c = parseInt(e.target.value, 10) / 100;
+										setAlgoCfg((cfg) => ({
+											...cfg,
+											hybridWeights: { clearance: c, positional: 1 - c },
+										}));
+									}}
+								/>
+								<div style={{ fontSize: 12, color: theme.accentColor }}>
+									{Math.round(algoCfg.hybridWeights.clearance * 100)} /{" "}
+									{Math.round(algoCfg.hybridWeights.positional * 100)}
+								</div>
+							</div>
+						)}
+					</div>
 				</div>
 			</div>
 
 			{/* Board */}
 			<div style={{ ...glass(16), marginTop: 16 }}>
+				{noMoves && (
+					<div style={{
+						marginBottom: 12,
+						padding: "8px 12px",
+						borderRadius: 10,
+						border: "1px solid rgba(239,68,68,0.4)",
+						background: "rgba(239,68,68,0.15)",
+						color: "#fecaca",
+						fontSize: 12,
+						textAlign: "center"
+					}}>
+						No possible moves with the current hands.
+					</div>
+				)}
 				<BoardView
 					board={board}
 					setBoardCell={(x, y, mode) => setBoardCell(x, y, mode)}
-					preview={preview}
+					preview={preview && preview.steps.length === handsCount ? preview : null}
 					activeStep={activeStep}
 					stepMs={stepMs}
 					theme={theme}
@@ -359,6 +458,9 @@ export default function BlockBlastHelper() {
 			>
 				Drag across the grid to toggle. Pick up to 3 pieces. Preview loops;
 				Continue applies it.
+				{/* Add copyright */}
+				<br />
+				&copy; 2025 Reynara0
 			</div>
 
 			{showTheme && (

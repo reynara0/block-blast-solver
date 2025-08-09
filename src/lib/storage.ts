@@ -1,4 +1,11 @@
-import { STORAGE_KEYS, Board, Theme, Algorithm } from "../types";
+import {
+	STORAGE_KEYS,
+	Board,
+	Theme,
+	Algorithm,
+	AlgoConfig,
+	DEFAULT_ALGO_CONFIG,
+} from "../types";
 
 export const loadBoard = (N: number, fallback: Board): Board => {
 	try {
@@ -43,9 +50,23 @@ export const loadHands = (): SavedHandRef[] | null => {
 	}
 };
 
-export const loadAlgo = (def: Algorithm = "beam"): Algorithm => {
+export const loadAlgo = (def: Algorithm = "max_clearance"): Algorithm => {
 	const v = localStorage.getItem(STORAGE_KEYS.algo) as Algorithm | null;
-	return v === "greedy" || v === "beam" || v === "rollout" ? v : def;
+	return v === "max_clearance" || v === "max_positional" || v === "hybrid"
+		? v
+		: def;
 };
 export const saveAlgo = (algo: Algorithm) =>
 	localStorage.setItem(STORAGE_KEYS.algo, algo);
+
+export const loadAlgoCfg = (
+	def: AlgoConfig = DEFAULT_ALGO_CONFIG,
+): AlgoConfig => {
+	try {
+		return JSON.parse(localStorage.getItem(STORAGE_KEYS.algoCfg) || "") || def;
+	} catch {
+		return def;
+	}
+};
+export const saveAlgoCfg = (cfg: AlgoConfig) =>
+	localStorage.setItem(STORAGE_KEYS.algoCfg, JSON.stringify(cfg));

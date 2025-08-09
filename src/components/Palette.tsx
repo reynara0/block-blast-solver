@@ -35,7 +35,8 @@ export default function Palette({ selected, setHand, theme }: Props) {
 	}, [selected]);
 
 	const groups: PieceGroupKey[] = [
-		"bars_rects",
+		"bars",
+		"rects",
 		"L",
 		"Z",
 		"T",

@@ -37,7 +37,16 @@ export type PieceGroupKey =
 	| "diag3"
 	| "custom";
 
-export type Algorithm = "greedy" | "beam" | "rollout";
+/** Algorithm modes */
+export type Algorithm = "max_clearance" | "max_positional" | "hybrid";
+
+/** Tunables for algorithms */
+export interface AlgoConfig {
+	/** Max nodes to expand in the DFS/BFS search for Max Clearance / Hybrid */
+	maxNodes: number; // e.g., 50_000
+	/** Hybrid weights: 0..1 each (we normalize anyway), default 0.5/0.5 */
+	hybridWeights: { clearance: number; positional: number };
+}
 
 export interface Theme {
 	emptyColor: string;
@@ -59,10 +68,16 @@ export const DEFAULT_THEME: Theme = {
 	glass: 0.06,
 };
 
+export const DEFAULT_ALGO_CONFIG: AlgoConfig = {
+	maxNodes: 50000,
+	hybridWeights: { clearance: 0.5, positional: 0.5 },
+};
+
 export const STORAGE_KEYS = {
 	board: "bb.board",
 	hands: "bb.hands",
 	theme: "bb.theme",
 	speed: "bb.speed",
 	algo: "bb.algo",
+	algoCfg: "bb.algoCfg",
 } as const;

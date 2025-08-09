@@ -1,6 +1,16 @@
-import { Board, Coord, N, Preview, Step, Hand, Algorithm } from "../types";
+import {
+	Board,
+	Coord,
+	N,
+	Preview,
+	Step,
+	Hand,
+	Algorithm,
+	AlgoConfig,
+	DEFAULT_ALGO_CONFIG,
+} from "../types";
 
-/** Basics */
+/** ===== Basics / geometry ===== */
 export const emptyBoard = (): Board =>
 	Array.from({ length: N }, () => Array<0 | 1>(N).fill(0));
 
@@ -48,7 +58,7 @@ export function variants(shape: Coord[], includeMirror = true): Coord[][] {
 	return out;
 }
 
-/** Board ops */
+/** ===== Board ops ===== */
 export function fits(
 	board: Board,
 	shape: Coord[],
@@ -63,6 +73,7 @@ export function fits(
 	}
 	return true;
 }
+
 export function place(
 	board: Board,
 	shape: Coord[],
@@ -71,8 +82,9 @@ export function place(
 ): { board: Board; linesCleared: number } {
 	const next: Board = board.map((r) => r.slice());
 	for (const [x, y] of shape) next[oy + y][ox + x] = 1;
-	const fullRows: number[] = [],
-		fullCols: number[] = [];
+
+	const fullRows: number[] = [];
+	const fullCols: number[] = [];
 	for (let r = 0; r < N; r++)
 		if (next[r].every((v) => v === 1)) fullRows.push(r);
 	for (let c = 0; c < N; c++) {
@@ -86,8 +98,10 @@ export function place(
 	}
 	for (const r of fullRows) for (let c = 0; c < N; c++) next[r][c] = 0;
 	for (const c of fullCols) for (let r = 0; r < N; r++) next[r][c] = 0;
+
 	return { board: next, linesCleared: fullRows.length + fullCols.length };
 }
+
 export function allPlacements(board: Board, shape: Coord[]): Coord[] {
 	const res: Coord[] = [];
 	for (let oy = 0; oy < N; oy++)
@@ -96,39 +110,67 @@ export function allPlacements(board: Board, shape: Coord[]): Coord[] {
 	return res;
 }
 
-/** Heuristics */
-function countIslands(board: Board): number {
-	const seen = Array.from({ length: N }, () => Array(N).fill(false));
-	let islands = 0;
+/** ===== Positional metrics =====
+ * Goal: keep big contiguous open space, avoid holes, avoid fragmenting.
+ */
+function bfsComponent(board: Board, x0: number, y0: number, targetVal: 0 | 1) {
+	const q: [number, number][] = [[x0, y0]];
+	const seen = new Set<string>([`${x0},${y0}`]);
 	const dirs = [
 		[1, 0],
 		[-1, 0],
 		[0, 1],
 		[0, -1],
 	];
+	while (q.length) {
+		const [x, y] = q.pop()!;
+		for (const [dx, dy] of dirs) {
+			const nx = x + dx,
+				ny = y + dy;
+			if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+			if (board[ny][nx] !== targetVal) continue;
+			const key = `${nx},${ny}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			q.push([nx, ny]);
+		}
+	}
+	return seen;
+}
+
+function countFilledIslands(board: Board): number {
+	let islands = 0;
+	const visited = new Set<string>();
 	for (let y = 0; y < N; y++)
 		for (let x = 0; x < N; x++) {
-			if (board[y][x] === 0 || seen[y][x]) continue;
+			if (board[y][x] !== 1) continue;
+			const k = `${x},${y}`;
+			if (visited.has(k)) continue;
+			const comp = bfsComponent(board, x, y, 1);
+			comp.forEach((c) => visited.add(c));
 			islands++;
-			const q: [[number, number]] = [[x, y]];
-			seen[y][x] = true;
-			while (q.length) {
-				const [cx, cy] = q.pop()!;
-				for (const [dx, dy] of dirs) {
-					const nx = cx + dx,
-						ny = cy + dy;
-					if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
-					if (board[ny][nx] === 1 && !seen[ny][nx]) {
-						seen[ny][nx] = true;
-						q.push([nx, ny]);
-					}
-				}
-			}
 		}
 	return islands;
 }
+
+function emptySpacesStats(board: Board): { comps: number; maxSize: number } {
+	let comps = 0,
+		maxSize = 0;
+	const visited = new Set<string>();
+	for (let y = 0; y < N; y++)
+		for (let x = 0; x < N; x++) {
+			if (board[y][x] !== 0) continue;
+			const k = `${x},${y}`;
+			if (visited.has(k)) continue;
+			const comp = bfsComponent(board, x, y, 0);
+			comp.forEach((c) => visited.add(c));
+			comps++;
+			if (comp.size > maxSize) maxSize = comp.size;
+		}
+	return { comps, maxSize };
+}
+
 function countHoles(board: Board): number {
-	// empty cells fully surrounded by filled neighbors (4-neigh)
 	let holes = 0;
 	for (let y = 1; y < N - 1; y++)
 		for (let x = 1; x < N - 1; x++) {
@@ -143,247 +185,146 @@ function countHoles(board: Board): number {
 		}
 	return holes;
 }
-function mobility(board: Board): number {
-	// rough: count number of empty cells that have at least one empty neighbor
-	let m = 0;
-	for (let y = 0; y < N; y++)
-		for (let x = 0; x < N; x++) {
-			if (board[y][x] === 0) {
-				if (
-					(x > 0 && board[y][x - 1] === 0) ||
-					(x < N - 1 && board[y][x + 1] === 0) ||
-					(y > 0 && board[y - 1][x] === 0) ||
-					(y < N - 1 && board[y + 1][x] === 0)
-				)
-					m++;
-			}
-		}
-	return m;
-}
-function scoreBoard(
-	linesCleared: number,
-	cellsPlaced: number,
-	board: Board,
-	stepsUsed: number,
-) {
-	// Tuned-ish: prioritize clears, then cells placed, then mobility; penalize holes/islands
+
+/** Higher is better. Rewards large connected empty area, penalizes holes and fragmentation. */
+export function positionalScore(board: Board): number {
+	const { comps: emptyComps, maxSize: emptyMax } = emptySpacesStats(board);
+	const filledIslands = countFilledIslands(board);
 	const holes = countHoles(board);
-	const islands = countIslands(board);
-	const mob = mobility(board);
+
+	// Tuned to heavily punish holes, mildly punish fragmentation, and strongly reward one big open area
 	return (
-		1000 * linesCleared +
-		9 * cellsPlaced +
-		0.5 * mob +
-		1 * stepsUsed -
-		50 * holes -
-		12 * islands
+		1.25 * emptyMax - // bigger connected open space is better
+		18 * emptyComps - // fewer separate empty pockets
+		8 * filledIslands - // avoid scattering filled islands
+		60 * holes // absolutely no single-cell gaps
 	);
 }
 
-/** Algorithms */
-export function findBestGreedy(board: Board, hands: Hand[]): Preview {
-	// simple: try all sequences but only keep best by local step-wise gain
-	// (still explores permutations but no beam)
+/** ===== DFS helpers ===== */
+type DfsResult = { found: boolean; best: Preview };
+
+function dfsAllHands(
+	board: Board,
+	hands: Hand[],
+	orderIdx: number[],
+	evalLeaf: (b: Board, steps: Step[], cleared: number) => number,
+	cap: number,
+): DfsResult {
+	let nodes = 0;
+	let foundAny = false;
 	let best: Preview = { score: -Infinity, steps: [] };
-	function dfs(
-		cur: Board,
-		rem: Hand[],
-		acc: Step[],
-		cleared: number,
-		placed: number,
-	) {
-		if (!rem.length) {
-			const sc = scoreBoard(cleared, placed, cur, acc.length);
+
+	function dfs(cur: Board, remaining: number[], acc: Step[], cleared: number) {
+		if (++nodes > cap) return;
+		if (remaining.length === 0) {
+			// Only accept leaves that placed ALL hands
+			foundAny = true;
+			const sc = evalLeaf(cur, acc, cleared);
 			if (sc > best.score) best = { score: sc, steps: acc.slice() };
 			return;
 		}
-		for (let i = 0; i < rem.length; i++) {
-			const h = rem[i],
-				rest = rem.filter((_, j) => j !== i);
-			const positions = allPlacements(cur, h.shape);
-			if (!positions.length) {
-				dfs(cur, rest, acc, cleared, placed);
-				continue;
-			}
-			// choose locally best position for this hand only
-			let localBest: { step: Step; nb: Board; sc: number } | null = null;
-			for (const [ox, oy] of positions) {
-				const { board: nb, linesCleared } = place(cur, h.shape, ox, oy);
-				const sc = scoreBoard(linesCleared, h.shape.length, nb, acc.length + 1);
-				const step: Step = { hand: h, ox, oy, linesCleared };
-				if (!localBest || sc > localBest.sc) localBest = { step, nb, sc };
-			}
-			if (localBest) {
-				acc.push(localBest.step);
-				dfs(
-					localBest.nb,
-					rest,
-					acc,
-					cleared + localBest.step.linesCleared,
-					placed + h.shape.length,
-				);
+		// Try each remaining hand; if none can be placed, this branch dies (no partials)
+		let anyPlaced = false;
+		for (let i = 0; i < remaining.length; i++) {
+			const idx = remaining[i];
+			const hand = hands[idx];
+			const pos = allPlacements(cur, hand.shape);
+			if (!pos.length) continue;
+			anyPlaced = true;
+			const nextRemain = remaining.filter((v) => v !== idx);
+			for (const [ox, oy] of pos) {
+				const { board: nb, linesCleared } = place(cur, hand.shape, ox, oy);
+				acc.push({ hand, ox, oy, linesCleared });
+				dfs(nb, nextRemain, acc, cleared + linesCleared);
 				acc.pop();
+				if (nodes > cap) return;
 			}
 		}
+		// If nothing placeable at this depth -> dead end; do NOT score partials
+		if (!anyPlaced) return;
 	}
-	dfs(board, hands, [], 0, 0);
-	return best;
+
+	dfs(board, orderIdx, [], 0);
+	return { found: foundAny, best };
 }
 
-export function findBestBeam(board: Board, hands: Hand[], K = 120): Preview {
-	type Node = {
-		board: Board;
-		steps: Step[];
-		used: boolean[];
-		cleared: number;
-		placed: number;
-	};
-	const n = hands.length;
-	const init: Node = {
-		board,
-		steps: [],
-		used: Array(n).fill(false),
-		cleared: 0,
-		placed: 0,
-	};
-	let frontier: Node[] = [init];
-
-	for (let depth = 0; depth < n; depth++) {
-		const next: Node[] = [];
-		for (const node of frontier) {
-			for (let i = 0; i < n; i++) {
-				if (node.used[i]) continue;
-				const h = hands[i];
-				const positions = allPlacements(node.board, h.shape);
-				for (const [ox, oy] of positions) {
-					const { board: nb, linesCleared } = place(
-						node.board,
-						h.shape,
-						ox,
-						oy,
-					);
-					const steps = node.steps.concat([{ hand: h, ox, oy, linesCleared }]);
-					const used = node.used.slice();
-					used[i] = true;
-					next.push({
-						board: nb,
-						steps,
-						used,
-						cleared: node.cleared + linesCleared,
-						placed: node.placed + h.shape.length,
-					});
-				}
-			}
-			// also allow skipping unplaceable branches: do nothing
-			if (node.steps.length) next.push(node);
-		}
-		// rank & beam
-		next.sort(
-			(a, b) =>
-				scoreBoard(b.cleared, b.placed, b.board, b.steps.length) -
-				scoreBoard(a.cleared, a.placed, a.board, a.steps.length),
-		);
-		frontier = next.slice(0, K);
-	}
-	// pick best
-	frontier.sort(
-		(a, b) =>
-			scoreBoard(b.cleared, b.placed, b.board, b.steps.length) -
-			scoreBoard(a.cleared, a.placed, a.board, a.steps.length),
-	);
-	const best = frontier[0] || init;
-	return {
-		score: scoreBoard(best.cleared, best.placed, best.board, best.steps.length),
-		steps: best.steps,
-	};
-}
-
-export function findBestRollout(
+/** ===== 1) Max Clearance (DFS, cap) ===== */
+export function findBestMaxClearance(
 	board: Board,
 	hands: Hand[],
-	rollouts = 40,
+	cfg: AlgoConfig = DEFAULT_ALGO_CONFIG,
 ): Preview {
-	// Evaluate each sequence by adding a mobility forecast via random noise
-	// (cheap look-ahead beyond current hands)
-	let best: Preview = { score: -Infinity, steps: [] };
-	function perms(arr: Hand[], acc: Hand[] = []): Hand[][] {
-		if (!arr.length) return [acc];
-		const out: Hand[][] = [];
-		arr.forEach((h, i) => {
-			const rest = arr.filter((_, j) => j !== i);
-			out.push(...perms(rest, acc.concat(h)));
-		});
-		return out;
-	}
-	const sequences = perms(hands);
-	for (const seq of sequences) {
-		// choose best placements for this fixed order
-		const expand = (
-			b: Board,
-		): { steps: Step[]; board: Board; cleared: number; placed: number } => {
-			let cur = b,
-				steps: Step[] = [],
-				cleared = 0,
-				placed = 0;
-			for (const h of seq) {
-				const pos = allPlacements(cur, h.shape);
-				if (!pos.length) continue;
-				let bestLocal: any = null;
-				for (const [ox, oy] of pos) {
-					const { board: nb, linesCleared } = place(cur, h.shape, ox, oy);
-					const sc = scoreBoard(
-						linesCleared,
-						h.shape.length,
-						nb,
-						steps.length + 1,
-					);
-					if (!bestLocal || sc > bestLocal.sc)
-						bestLocal = { nb, ox, oy, linesCleared, sc };
-				}
-				if (bestLocal) {
-					cur = bestLocal.nb;
-					steps.push({
-						hand: h,
-						ox: bestLocal.ox,
-						oy: bestLocal.oy,
-						linesCleared: bestLocal.linesCleared,
-					});
-					cleared += bestLocal.linesCleared;
-					placed += h.shape.length;
-				}
-			}
-			return { steps, board: cur, cleared, placed };
-		};
-		const base = expand(board);
+	const idxs = hands.map((_, i) => i);
+	const { found, best } = dfsAllHands(
+		board,
+		hands,
+		idxs,
+		(_b, steps, cleared) => cleared, // score = total lines cleared
+		cfg.maxNodes,
+	);
+	return found ? best : { score: -Infinity, steps: [] };
+}
 
-		// crude rollouts: random “noise” clears to proxy survivability
-		let bonus = 0;
-		for (let r = 0; r < rollouts; r++) {
-			// sample random empty cells coverage as mobility proxy
-			bonus += mobility(base.board) * 0.05;
-		}
-		const score =
-			scoreBoard(base.cleared, base.placed, base.board, base.steps.length) +
-			bonus;
-		if (score > best.score) best = { score, steps: base.steps };
-	}
-	return best;
+/** ===== 2) Max Positional (DFS, cap) =====
+ * Pure positional objective, still requires placing ALL hands.
+ */
+export function findBestMaxPositional(
+	board: Board,
+	hands: Hand[],
+	cfg: AlgoConfig = DEFAULT_ALGO_CONFIG,
+): Preview {
+	const idxs = hands.map((_, i) => i);
+	const { found, best } = dfsAllHands(
+		board,
+		hands,
+		idxs,
+		(b, _steps, _cleared) => positionalScore(b),
+		cfg.maxNodes,
+	);
+	return found ? best : { score: -Infinity, steps: [] };
+}
+
+/** ===== 3) Hybrid (DFS, cap) =====
+ * weighted clearance + positional
+ */
+export function findBestHybrid(
+	board: Board,
+	hands: Hand[],
+	cfg: AlgoConfig = DEFAULT_ALGO_CONFIG,
+): Preview {
+	const wC = Math.max(0, cfg.hybridWeights.clearance);
+	const wP = Math.max(0, cfg.hybridWeights.positional);
+	const sum = wC + wP || 1;
+	const wc = wC / sum,
+		wp = wP / sum;
+
+	const idxs = hands.map((_, i) => i);
+	const { found, best } = dfsAllHands(
+		board,
+		hands,
+		idxs,
+		(b, steps, cleared) =>
+			wc * cleared + wp * positionalScore(b) + 0.0005 * steps.length,
+		cfg.maxNodes,
+	);
+	return found ? best : { score: -Infinity, steps: [] };
 }
 
 export function findBestByAlgorithm(
 	board: Board,
 	hands: Hand[],
 	algo: Algorithm,
+	cfg?: AlgoConfig,
 ): Preview {
-	if (hands.length === 0) return { score: 0, steps: [] };
 	switch (algo) {
-		case "greedy":
-			return findBestGreedy(board, hands);
-		case "beam":
-			return findBestBeam(board, hands, 120);
-		case "rollout":
-			return findBestRollout(board, hands, 40);
+		case "max_clearance":
+			return findBestMaxClearance(board, hands, cfg);
+		case "max_positional":
+			return findBestMaxPositional(board, hands, cfg);
+		case "hybrid":
+			return findBestHybrid(board, hands, cfg);
 		default:
-			return findBestGreedy(board, hands);
+			return { score: -Infinity, steps: [] };
 	}
 }
