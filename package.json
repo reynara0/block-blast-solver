@@ -1,0 +1,28 @@
+{
+	"name": "block-blast-solver",
+	"version": "1.0",
+	"private": false,
+	"type": "module",
+	"main": "src/index.tsx",
+	"module": "src/index.tsx",
+	"homepage": "https://reynara0.github.io/block-blast-solver",
+	"scripts": {
+		"dev": "bun --hot src/index.tsx",
+		"start": "NODE_ENV=production bun src/index.tsx",
+		"build": "bun run build.ts --public-path=/block-blast-solver/",
+		"deploy": "gh-pages -d dist"
+	},
+	"dependencies": {
+		"bun-plugin-tailwind": "^0.0.14",
+		"framer-motion": "^12.23.12",
+		"react": "^19",
+		"react-dom": "^19",
+		"tailwindcss": "^4.0.6"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/react": "^19",
+		"@types/react-dom": "^19",
+		"gh-pages": "^6.3.0"
+	}
+}
