@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import BoardView from "../components/Board";
 import Hands from "../components/Hands";
 import Palette from "../components/Palette";
@@ -30,6 +30,7 @@ import {
 	loadAlgoCfg,
 	saveAlgoCfg,
 } from "../lib/storage";
+import { buildGroupedShapes } from "../lib/shapes";
 
 export default function BlockBlastHelper() {
 	const [theme, setTheme] = useState<Theme>(() => loadTheme(DEFAULT_THEME));
@@ -156,6 +157,79 @@ export default function BlockBlastHelper() {
 			n[slotIdx] = null;
 			return n;
 		});
+
+		// shapes flat list (for autoplay)
+	const allShapes = useMemo(() => {
+		const g = buildGroupedShapes();
+		return Object.values(g).flat();
+	}, []);
+
+	// ===== Autoplay =====
+	const [autoplay, setAutoplay] = useState(false);
+	const autoplayTimer = useRef<number | null>(null);
+
+	function pickRandomHandsSet(): Array<Hand> {
+		// pick 3 unique random shapes, color-coded by slot
+		const picks: number[] = [];
+		while (picks.length < 3) {
+			const idx = Math.floor(Math.random() * allShapes.length);
+			if (!picks.includes(idx)) picks.push(idx);
+		}
+		return picks.map((i, slot) => {
+			const s = allShapes[i];
+			const color = [theme.hand1Color, theme.hand2Color, theme.hand3Color][slot];
+			return { id: s.id, shape: s.cells, color, idx: slot };
+		});
+	}
+
+	function scheduleNextAutoplayCycle() {
+		if (!autoplay) return;
+
+		let candidate = pickRandomHandsSet();
+
+		// Set the chosen hands (triggers preview)
+		setSelected([candidate[0], candidate[1], candidate[2]]);
+
+		// Wait for 3 steps worth of animation + buffer, then apply and recurse
+		const waitMs = stepMs * 3 + 600;
+		if (autoplayTimer.current) { window.clearTimeout(autoplayTimer.current); autoplayTimer.current = null; }
+		autoplayTimer.current = window.setTimeout(() => {
+			if (!autoplay) return;
+			// recompute preview to be safe (board may not have changed during wait)
+			const confirmPreview = findBestByAlgorithm(board, candidate!, algo, algoCfg);
+			// If still valid, apply; else just stop gracefully
+			if (confirmPreview.steps.length === 3) {
+				setBoard(prev => {
+					let b = prev;
+					for (const step of confirmPreview.steps) b = place(b, step.hand.shape, step.ox, step.oy).board;
+					return b;
+				});
+			} else {
+				stopAutoplay();
+				return;
+			}
+			setSelected([null, null, null]);
+			// queue next round
+			scheduleNextAutoplayCycle();
+		}, waitMs);
+	}
+
+	function startAutoplay() {
+		if (autoplay) return;
+		setAutoplay(true);
+	}
+	function stopAutoplay() {
+		setAutoplay(false);
+		if (autoplayTimer.current) { window.clearTimeout(autoplayTimer.current); autoplayTimer.current = null; }
+	}
+	// Kick cycles when autoplay flips on
+	useEffect(() => {
+		if (autoplay) scheduleNextAutoplayCycle();
+		return () => {
+			if (autoplayTimer.current) { window.clearTimeout(autoplayTimer.current); autoplayTimer.current = null; }
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [autoplay, board, algo, algoCfg, stepMs, theme.hand1Color, theme.hand2Color, theme.hand3Color]);
 
 	// layout
 	const shell: React.CSSProperties = {
@@ -316,6 +390,12 @@ export default function BlockBlastHelper() {
 					<option value="max_positional">Max Positional</option>
 					<option value="hybrid">Hybrid (50/50)</option>
 				</select>
+
+				{!autoplay ? (
+					<button onClick={startAutoplay} style={{ ...button, borderColor: theme.accentColor }}>Autoplay</button>
+				) : (
+					<button onClick={stopAutoplay} style={{ ...button, borderColor: theme.accentColor, background: "rgba(239,68,68,0.25)" }}>Stop</button>
+				)}
 
 				<div style={{ width: "100%", display: "flex", gap: 8 }}>
 					<div
