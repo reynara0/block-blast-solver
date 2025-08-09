@@ -158,7 +158,7 @@ export default function BlockBlastHelper() {
 			return n;
 		});
 
-		// shapes flat list (for autoplay)
+	// shapes flat list (for autoplay)
 	const allShapes = useMemo(() => {
 		const g = buildGroupedShapes();
 		return Object.values(g).flat();
@@ -177,7 +177,9 @@ export default function BlockBlastHelper() {
 		}
 		return picks.map((i, slot) => {
 			const s = allShapes[i];
-			const color = [theme.hand1Color, theme.hand2Color, theme.hand3Color][slot];
+			const color = [theme.hand1Color, theme.hand2Color, theme.hand3Color][
+				slot
+			];
 			return { id: s.id, shape: s.cells, color, idx: slot };
 		});
 	}
@@ -192,16 +194,25 @@ export default function BlockBlastHelper() {
 
 		// Wait for 3 steps worth of animation + buffer, then apply and recurse
 		const waitMs = stepMs * 3 + 600;
-		if (autoplayTimer.current) { window.clearTimeout(autoplayTimer.current); autoplayTimer.current = null; }
+		if (autoplayTimer.current) {
+			window.clearTimeout(autoplayTimer.current);
+			autoplayTimer.current = null;
+		}
 		autoplayTimer.current = window.setTimeout(() => {
 			if (!autoplay) return;
 			// recompute preview to be safe (board may not have changed during wait)
-			const confirmPreview = findBestByAlgorithm(board, candidate!, algo, algoCfg);
+			const confirmPreview = findBestByAlgorithm(
+				board,
+				candidate!,
+				algo,
+				algoCfg,
+			);
 			// If still valid, apply; else just stop gracefully
 			if (confirmPreview.steps.length === 3) {
-				setBoard(prev => {
+				setBoard((prev) => {
 					let b = prev;
-					for (const step of confirmPreview.steps) b = place(b, step.hand.shape, step.ox, step.oy).board;
+					for (const step of confirmPreview.steps)
+						b = place(b, step.hand.shape, step.ox, step.oy).board;
 					return b;
 				});
 			} else {
@@ -220,16 +231,31 @@ export default function BlockBlastHelper() {
 	}
 	function stopAutoplay() {
 		setAutoplay(false);
-		if (autoplayTimer.current) { window.clearTimeout(autoplayTimer.current); autoplayTimer.current = null; }
+		if (autoplayTimer.current) {
+			window.clearTimeout(autoplayTimer.current);
+			autoplayTimer.current = null;
+		}
 	}
 	// Kick cycles when autoplay flips on
 	useEffect(() => {
 		if (autoplay) scheduleNextAutoplayCycle();
 		return () => {
-			if (autoplayTimer.current) { window.clearTimeout(autoplayTimer.current); autoplayTimer.current = null; }
+			if (autoplayTimer.current) {
+				window.clearTimeout(autoplayTimer.current);
+				autoplayTimer.current = null;
+			}
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [autoplay, board, algo, algoCfg, stepMs, theme.hand1Color, theme.hand2Color, theme.hand3Color]);
+	}, [
+		autoplay,
+		board,
+		algo,
+		algoCfg,
+		stepMs,
+		theme.hand1Color,
+		theme.hand2Color,
+		theme.hand3Color,
+	]);
 
 	// layout
 	const shell: React.CSSProperties = {
@@ -292,11 +318,11 @@ export default function BlockBlastHelper() {
 	};
 
 	const handsCount = (selected.filter(Boolean) as Hand[]).length;
-	const noMoves = handsCount > 0 && (!preview || preview.steps.length < handsCount);
+	const noMoves =
+		handsCount > 0 && (!preview || preview.steps.length < handsCount);
 
 	return (
 		<div style={shell}>
-
 			{/* Top bar with Algorithm select */}
 			<div
 				style={{
@@ -392,9 +418,23 @@ export default function BlockBlastHelper() {
 				</select>
 
 				{!autoplay ? (
-					<button onClick={startAutoplay} style={{ ...button, borderColor: theme.accentColor }}>Autoplay</button>
+					<button
+						onClick={startAutoplay}
+						style={{ ...button, borderColor: theme.accentColor }}
+					>
+						Autoplay
+					</button>
 				) : (
-					<button onClick={stopAutoplay} style={{ ...button, borderColor: theme.accentColor, background: "rgba(239,68,68,0.25)" }}>Stop</button>
+					<button
+						onClick={stopAutoplay}
+						style={{
+							...button,
+							borderColor: theme.accentColor,
+							background: "rgba(239,68,68,0.25)",
+						}}
+					>
+						Stop
+					</button>
 				)}
 
 				<div style={{ width: "100%", display: "flex", gap: 8 }}>
@@ -477,23 +517,27 @@ export default function BlockBlastHelper() {
 			{/* Board */}
 			<div style={{ ...glass(16), marginTop: 16 }}>
 				{noMoves && (
-					<div style={{
-						marginBottom: 12,
-						padding: "8px 12px",
-						borderRadius: 10,
-						border: "1px solid rgba(239,68,68,0.4)",
-						background: "rgba(239,68,68,0.15)",
-						color: "#fecaca",
-						fontSize: 12,
-						textAlign: "center"
-					}}>
+					<div
+						style={{
+							marginBottom: 12,
+							padding: "8px 12px",
+							borderRadius: 10,
+							border: "1px solid rgba(239,68,68,0.4)",
+							background: "rgba(239,68,68,0.15)",
+							color: "#fecaca",
+							fontSize: 12,
+							textAlign: "center",
+						}}
+					>
 						No possible moves with the current hands.
 					</div>
 				)}
 				<BoardView
 					board={board}
 					setBoardCell={(x, y, mode) => setBoardCell(x, y, mode)}
-					preview={preview && preview.steps.length === handsCount ? preview : null}
+					preview={
+						preview && preview.steps.length === handsCount ? preview : null
+					}
 					activeStep={activeStep}
 					stepMs={stepMs}
 					theme={theme}

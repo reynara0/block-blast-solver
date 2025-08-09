@@ -110,9 +110,7 @@ export function allPlacements(board: Board, shape: Coord[]): Coord[] {
 	return res;
 }
 
-/** ===== Positional metrics =====
- * Goal: keep big contiguous open space, avoid holes, avoid fragmenting.
- */
+/** ===== Positional metrics ===== */
 function bfsComponent(board: Board, x0: number, y0: number, targetVal: 0 | 1) {
 	const q: [number, number][] = [[x0, y0]];
 	const seen = new Set<string>([`${x0},${y0}`]);
@@ -137,7 +135,6 @@ function bfsComponent(board: Board, x0: number, y0: number, targetVal: 0 | 1) {
 	}
 	return seen;
 }
-
 function countFilledIslands(board: Board): number {
 	let islands = 0;
 	const visited = new Set<string>();
@@ -152,7 +149,6 @@ function countFilledIslands(board: Board): number {
 		}
 	return islands;
 }
-
 function emptySpacesStats(board: Board): { comps: number; maxSize: number } {
 	let comps = 0,
 		maxSize = 0;
@@ -169,7 +165,6 @@ function emptySpacesStats(board: Board): { comps: number; maxSize: number } {
 		}
 	return { comps, maxSize };
 }
-
 function countHoles(board: Board): number {
 	let holes = 0;
 	for (let y = 1; y < N - 1; y++)
@@ -185,23 +180,25 @@ function countHoles(board: Board): number {
 		}
 	return holes;
 }
+function filledCount(board: Board): number {
+	let f = 0;
+	for (let y = 0; y < N; y++)
+		for (let x = 0; x < N; x++) if (board[y][x] === 1) f++;
+	return f;
+}
+function emptinessScore(board: Board): number {
+	return N * N - filledCount(board); // 0..64; higher = emptier
+}
 
-/** Higher is better. Rewards large connected empty area, penalizes holes and fragmentation. */
+/** Higher is better. Rewards large connected empty area, penalizes holes/fragmentation. */
 export function positionalScore(board: Board): number {
 	const { comps: emptyComps, maxSize: emptyMax } = emptySpacesStats(board);
 	const filledIslands = countFilledIslands(board);
 	const holes = countHoles(board);
-
-	// Tuned to heavily punish holes, mildly punish fragmentation, and strongly reward one big open area
-	return (
-		1.25 * emptyMax - // bigger connected open space is better
-		18 * emptyComps - // fewer separate empty pockets
-		8 * filledIslands - // avoid scattering filled islands
-		60 * holes // absolutely no single-cell gaps
-	);
+	return 1.25 * emptyMax - 18 * emptyComps - 8 * filledIslands - 60 * holes;
 }
 
-/** ===== DFS helpers ===== */
+/** ===== DFS framework (place ALL hands or discard) ===== */
 type DfsResult = { found: boolean; best: Preview };
 
 function dfsAllHands(
@@ -218,13 +215,11 @@ function dfsAllHands(
 	function dfs(cur: Board, remaining: number[], acc: Step[], cleared: number) {
 		if (++nodes > cap) return;
 		if (remaining.length === 0) {
-			// Only accept leaves that placed ALL hands
 			foundAny = true;
 			const sc = evalLeaf(cur, acc, cleared);
 			if (sc > best.score) best = { score: sc, steps: acc.slice() };
 			return;
 		}
-		// Try each remaining hand; if none can be placed, this branch dies (no partials)
 		let anyPlaced = false;
 		for (let i = 0; i < remaining.length; i++) {
 			const idx = remaining[i];
@@ -241,7 +236,7 @@ function dfsAllHands(
 				if (nodes > cap) return;
 			}
 		}
-		// If nothing placeable at this depth -> dead end; do NOT score partials
+		// Nothing placeable -> dead end (reject partial sequences)
 		if (!anyPlaced) return;
 	}
 
@@ -249,7 +244,25 @@ function dfsAllHands(
 	return { found: foundAny, best };
 }
 
-/** ===== 1) Max Clearance (DFS, cap) ===== */
+/** ===== Master scoring: emptiness ALWAYS dominates =====
+ * We scale emptiness huge so it wins; others become tie-breakers.
+ */
+function scoreEmptinessFirst(
+	b: Board,
+	clears: number,
+	pos: number,
+	stepsUsed: number,
+): number {
+	const empty = emptinessScore(b); // 0..64
+	return (
+		10000 * empty + // primary: emptier board wins
+		1000 * clears + // secondary: more lines cleared
+		1 * pos + // tertiary: better positional shape
+		0.001 * stepsUsed // tiny tie-break
+	);
+}
+
+/** ===== 1) Max Clearance (DFS, cap, emptiness-first) ===== */
 export function findBestMaxClearance(
 	board: Board,
 	hands: Hand[],
@@ -260,15 +273,13 @@ export function findBestMaxClearance(
 		board,
 		hands,
 		idxs,
-		(_b, steps, cleared) => cleared, // score = total lines cleared
+		(b, _steps, cleared) => scoreEmptinessFirst(b, cleared, 0, _steps.length),
 		cfg.maxNodes,
 	);
 	return found ? best : { score: -Infinity, steps: [] };
 }
 
-/** ===== 2) Max Positional (DFS, cap) =====
- * Pure positional objective, still requires placing ALL hands.
- */
+/** ===== 2) Max Positional (DFS, cap, emptiness-first) ===== */
 export function findBestMaxPositional(
 	board: Board,
 	hands: Hand[],
@@ -279,15 +290,14 @@ export function findBestMaxPositional(
 		board,
 		hands,
 		idxs,
-		(b, _steps, _cleared) => positionalScore(b),
+		(b, steps, _cleared) =>
+			scoreEmptinessFirst(b, 0, positionalScore(b), steps.length),
 		cfg.maxNodes,
 	);
 	return found ? best : { score: -Infinity, steps: [] };
 }
 
-/** ===== 3) Hybrid (DFS, cap) =====
- * weighted clearance + positional
- */
+/** ===== 3) Hybrid (DFS, cap, emptiness-first) ===== */
 export function findBestHybrid(
 	board: Board,
 	hands: Hand[],
@@ -304,8 +314,11 @@ export function findBestHybrid(
 		board,
 		hands,
 		idxs,
-		(b, steps, cleared) =>
-			wc * cleared + wp * positionalScore(b) + 0.0005 * steps.length,
+		(b, steps, cleared) => {
+			const pos = positionalScore(b);
+			const hybridTie = 1000 * (wc * cleared) + 1 * (wp * pos);
+			return 10000 * emptinessScore(b) + hybridTie + 0.001 * steps.length;
+		},
 		cfg.maxNodes,
 	);
 	return found ? best : { score: -Infinity, steps: [] };
