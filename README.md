@@ -3,6 +3,8 @@
 A modern **Progressive Web App** built with **React + TypeScript** that helps you find the best moves for the popular puzzle game **Block Blast**.  
 Optimized for **mobile** with a draggable 8×8 board, piece selection, animated solution previews, and theme customization.
 
+Try it out here: https://reynara0.github.io/block-blast-solver/
+
 ![Block Blast Solver Screenshot](demo.gif)
 
 ---
